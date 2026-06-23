@@ -5,7 +5,7 @@ import type {
 } from "@/models/Site";
 
 const USER_AGENT =
-  "Mozilla/5.0 (compatible; SiteMindAI/1.0; +https://sitemind.ai/bot)";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 const MAX_PAGES = 6;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_CHARS_PER_PAGE = 6000;
@@ -27,17 +27,41 @@ async function fetchHtml(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     const res = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT },
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
       signal: controller.signal,
       redirect: "follow",
     });
+
     clearTimeout(timeout);
-    if (!res.ok) return null;
+
+    console.log("[crawler] URL:", url);
+    console.log("[crawler] Status:", res.status);
+
+    if (!res.ok) {
+      console.log("[crawler] Failed with status:", res.status);
+      return null;
+    }
+
     const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("text/html")) return null;
+
+    console.log("[crawler] Content-Type:", contentType);
+
+    if (!contentType.includes("text/html")) {
+      console.log("[crawler] Not HTML content");
+      return null;
+    }
+
     return await res.text();
-  } catch {
+  } catch (error) {
+    console.error("[crawler] Error:", error);
     return null;
   }
 }
@@ -232,10 +256,10 @@ export async function crawlWebsite(startUrl: string): Promise<CrawlResult> {
   }
 
   if (pages.length === 0) {
-    throw new Error(
-      "Could not reach this website. Check the URL and try again, or the site may be blocking automated requests."
-    );
-  }
+  console.error("[crawler] No pages crawled from:", normalizedStart);
+
+  throw new Error(`Crawler failed for ${normalizedStart}`);
+}
 
   const contactInfo = extractContactInfo(pages);
   const pricingText = findPricingPage(pages);
