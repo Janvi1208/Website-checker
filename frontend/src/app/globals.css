@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0a0e14;
+  --foreground: #e8ecf1;
+}
+
+* {
+  border-color: #2c3543;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Visible keyboard focus everywhere, regardless of mouse styling resets */
+:focus-visible {
+  outline: 2px solid #3ddc84;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer components {
+  /* The "readout" treatment — used for scores, URLs, and data values
+     throughout the app. This is the signature visual language: the product
+     reads structured data off a website, so data should look read, not
+     decorated. */
+  .readout {
+    @apply font-mono text-signal tabular-nums tracking-tight;
+  }
+
+  .readout-label {
+    @apply font-mono text-[11px] uppercase tracking-[0.12em] text-muted;
+  }
+
+  .panel {
+    @apply rounded-xl border border-border bg-surface;
+  }
+
+  .panel-raised {
+    @apply rounded-xl border border-border bg-surface-raised;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-signal px-5 py-2.5 font-display text-sm font-semibold text-ink transition-colors hover:bg-signal-dim disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface px-5 py-2.5 font-display text-sm font-semibold text-ivory transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .input-field {
+    @apply w-full rounded-lg border border-border bg-surface px-4 py-3 font-body text-sm text-ivory placeholder:text-muted focus:border-signal focus:outline-none;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Faint scanline texture used sparingly on hero/scan surfaces only */
+  .bg-scanlines {
+    background-image: repeating-linear-gradient(
+      0deg,
+      rgba(232, 236, 241, 0.025) 0px,
+      rgba(232, 236, 241, 0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+}
