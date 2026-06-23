@@ -2,204 +2,259 @@
 
 Paste a website URL. Get back a design audit, a trust score, a tech-stack
 breakdown, real competitors, a business-model classification, a clone-cost
-estimate — and a chat interface grounded in what was actually crawled.
+estimate, and a chat interface grounded in what was actually crawled.
 
-This is a **two-app project**: a Next.js frontend and a separate Express/Node
-API backend, talking to each other over HTTP. They're independently
-runnable, independently deployable, and live in their own folders with their
-own `package.json`, `node_modules`, and CI job.
+This is a two-app project: a Next.js frontend and a separate Express/Node API
+backend, talking to each other over HTTP. They are independently runnable,
+independently deployable, and live in their own folders with their own
+`package.json`, `node_modules`, and build scripts.
 
-```
+```text
 sitemind-ai/
-├── frontend/     Next.js 14 (App Router) + TypeScript + Tailwind — UI only
-├── backend/      Express + TypeScript + MongoDB — all API logic + AI agents
-└── docker-compose.yml   runs mongo + backend + frontend together
+|-- frontend/          Next.js 14 App Router + TypeScript + Tailwind
+|-- backend/           Express + TypeScript + MongoDB + AI agents
+`-- docker-compose.yml Runs MongoDB + backend + frontend together
 ```
 
-## Why split this way
+## Latest Updates
 
-The frontend never talks to MongoDB or Anthropic directly — it only calls
-the backend's REST API (`frontend/src/lib/api.ts` is the single place that
-knows the backend's URL). The backend never renders anything — it's a pure
-JSON API with five AI agents, a crawler, and a RAG pipeline behind it. That
-separation is the actual point of the exercise: each side can be developed,
-tested, deployed, and scaled independently, by different people, on
-different schedules.
+- The backend now uses Groq through the OpenAI-compatible API client instead of
+  Anthropic directly.
+- `GROQ_API_KEY` is now required for AI generation.
+- `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-120b`.
+- `VOYAGE_API_KEY` is still optional; without it, RAG retrieval falls back to a
+  deterministic non-semantic embedding.
+- Auth cookies are now cross-site ready: `httpOnly`, `SameSite=None`, `Secure`,
+  seven-day expiry, and `path=/`.
+- The frontend API fallback currently points to the deployed backend URL in
+  `frontend/src/lib/api.ts`, but local development should still set
+  `NEXT_PUBLIC_API_URL=http://localhost:4000`.
+
+## Why Split This Way
+
+The frontend never talks to MongoDB or Groq directly. It only calls the
+backend's REST API through `frontend/src/lib/api.ts`. The backend never renders
+pages; it is a pure JSON API with AI agents, a crawler, screenshot capture,
+tech detection, trust analysis, and a RAG pipeline behind it.
+
+That separation lets each side be developed, tested, deployed, and scaled
+independently.
 
 ## Architecture
 
-```
-┌─────────────────────┐         HTTP + cookies          ┌──────────────────────┐
-│      frontend/       │ ───────────────────────────────▶│       backend/        │
-│   Next.js (port 3000) │◀─────────────────────────────── │  Express (port 4000)  │
-└─────────────────────┘                                  └──────────┬───────────┘
-                                                                      │
-                                                          ┌───────────┴───────────┐
-                                                          │       MongoDB          │
-                                                          └────────────────────────┘
+```text
++-----------------------+      HTTP + cookies      +-----------------------+
+|       frontend/       | -----------------------> |        backend/       |
+| Next.js, port 3000    | <----------------------- | Express, port 4000    |
++-----------------------+                          +-----------+-----------+
+                                                              |
+                                                              v
+                                                    +-----------------------+
+                                                    |        MongoDB        |
+                                                    +-----------------------+
 ```
 
 Inside the backend, one request to `POST /api/sites/analyze` runs the full
 pipeline:
 
-```
-Crawl (fetch + cheerio) → pages, contact info, pricing, FAQs
-      │
-      ├──► Screenshot capture (desktop + mobile)
-      ├──► Tech detection (HTML + header signatures)
-      ├──► Chunk + embed pages (RAG index)
-      │
-      ▼
-Research Agent (Claude) — summarizes what the company does
-      │
-      ├──► Competitor Agent (Claude + web search)
-      ├──► Revenue Agent (Claude)            — business model
-      ├──► UX Agent (Claude vision)           — design scores
-      ├──► Security Agent (real signals + Claude) — trust score
-      │
-      ▼
-Cost Estimator (Claude) — clone effort, budget, timeline
-      │
-      ▼
-Stored in MongoDB ──► returned to frontend for the dashboard / chat
+```text
+Crawl with fetch + cheerio -> pages, contact info, pricing, FAQs
+      |
+      |-- Screenshot capture, desktop + mobile
+      |-- Tech detection from HTML and headers
+      |-- Chunk + embed pages for the RAG index
+      v
+Research Agent, Groq -> summarizes what the company does
+      |
+      |-- Competitor Agent, Groq -> likely competitors
+      |-- Revenue Agent, Groq -> business model
+      |-- UX Agent, Groq -> design scoring from available crawl/screenshot context
+      |-- Security Agent, signals + Groq -> trust score
+      v
+Cost Estimator, Groq -> clone effort, budget, timeline
+      |
+      v
+Stored in MongoDB -> returned to frontend for dashboard and chat
 ```
 
 Each agent is its own file under `backend/src/lib/agents/`.
 
-## Getting started
+## Getting Started
 
-You'll run two servers. Three terminals total (one is MongoDB) is the
-simplest path for local dev:
+You will run two servers. Three terminals total is the simplest local setup:
+one for MongoDB, one for the backend, and one for the frontend.
 
 ### 1. MongoDB
 
-Use a local install, or the fastest path — a free
-[MongoDB Atlas](https://www.mongodb.com/atlas) cluster, which gives you a
-connection string with no local install at all.
+Use a local MongoDB install, Docker, or a free MongoDB Atlas cluster. Atlas gives
+you a connection string without needing a local database install.
 
 ### 2. Backend
 
 ```bash
 cd backend
 npm install
-cp .env.example .env
-# fill in MONGODB_URI, JWT_SECRET, ANTHROPIC_API_KEY
+```
+
+Create or update `backend/.env`:
+
+```env
+PORT=4000
+MONGODB_URI=mongodb://localhost:27017/sitemind
+JWT_SECRET=replace_with_a_strong_secret
+GROQ_API_KEY=replace_with_your_groq_key
+GROQ_MODEL=openai/gpt-oss-120b
+VOYAGE_API_KEY=
+FRONTEND_URL=http://localhost:3000
+```
+
+Then run:
+
+```bash
 npm run dev
 ```
 
-Runs on **http://localhost:4000**. `npm run dev` uses `tsx watch` for hot
-reload; `npm run build && npm start` runs the compiled production version.
+The backend runs on `http://localhost:4000`. `npm run dev` uses `tsx watch` for
+hot reload; `npm run build && npm start` runs the compiled production version.
 
 ### 3. Frontend
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local
-# NEXT_PUBLIC_API_URL defaults to http://localhost:4000, matching the backend above
+```
+
+Create or update `frontend/.env`:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000
+```
+
+Then run:
+
+```bash
 npm run dev
 ```
 
-Runs on **http://localhost:3000**. Open that in your browser.
+The frontend runs on `http://localhost:3000`.
 
-### Running both with Docker instead
+### Running Both With Docker
+
+Create a root `.env` file for Docker Compose:
+
+```env
+JWT_SECRET=replace_with_a_strong_secret
+GROQ_API_KEY=replace_with_your_groq_key
+VOYAGE_API_KEY=
+NEXT_PUBLIC_API_URL=http://localhost:4000
+```
+
+Then run:
 
 ```bash
-cp .env.example .env   # fill in JWT_SECRET and ANTHROPIC_API_KEY
 docker compose up --build
 ```
 
-This starts MongoDB, the backend, and the frontend together — no local
-Node install needed at all. See `docker-compose.yml` for how the three
-containers are wired (backend talks to `mongo` by its service name; frontend
-is built with `NEXT_PUBLIC_API_URL` baked in as a build arg, since that
-variable is inlined into the client JS bundle at build time, not read at
-container runtime).
+This starts MongoDB, the backend, and the frontend together. The backend talks
+to MongoDB through the `mongo` service name. The frontend receives
+`NEXT_PUBLIC_API_URL` as a Docker build argument because Next.js inlines public
+environment variables into the client bundle at build time.
 
-## Environment variables
+## Environment Variables
 
-**`backend/.env`**
+### `backend/.env`
 
 | Variable | Required | Notes |
-|---|---|---|
-| `PORT` | No | Defaults to `4000` |
-| `MONGODB_URI` | Yes | Local Mongo or [Atlas](https://www.mongodb.com/atlas) |
-| `JWT_SECRET` | Yes | `openssl rand -base64 32` |
-| `ANTHROPIC_API_KEY` | Yes | [console.anthropic.com](https://console.anthropic.com) |
-| `FRONTEND_URL` | Yes | Must match the frontend's origin exactly, for CORS |
-| `VOYAGE_API_KEY` | No | Without it, RAG retrieval runs on a non-semantic fallback |
+|---|---:|---|
+| `PORT` | No | Defaults to `4000`. |
+| `MONGODB_URI` | Yes | Local MongoDB or MongoDB Atlas connection string. |
+| `JWT_SECRET` | Yes | Use a strong random secret, for example from `openssl rand -base64 32`. |
+| `GROQ_API_KEY` | Yes | Groq API key used by the backend AI agents. |
+| `GROQ_MODEL` | No | Defaults to `openai/gpt-oss-120b`. |
+| `FRONTEND_URL` | No | Defaults to `http://localhost:3000`; must match the frontend origin for CORS. |
+| `VOYAGE_API_KEY` | No | Enables real semantic embeddings for RAG. Falls back when empty. |
+| `NODE_ENV` | No | Defaults to `development`. |
 
-**`frontend/.env.local`**
+### `frontend/.env`
 
 | Variable | Required | Notes |
-|---|---|---|
-| `NEXT_PUBLIC_API_URL` | Yes | Where the backend lives, e.g. `http://localhost:4000` |
+|---|---:|---|
+| `NEXT_PUBLIC_API_URL` | Yes | Backend API base URL, for example `http://localhost:4000`. |
 
-## Auth, across two origins
+## Auth Across Two Origins
 
-The frontend and backend run on different ports/origins, so this isn't a
-same-site cookie setup by default. The backend sets the session token as an
-`httpOnly` cookie and the frontend's API client (`frontend/src/lib/api.ts`)
-sends every request with `credentials: "include"`; the backend's CORS
-config (`backend/src/app.ts`) explicitly allows `FRONTEND_URL` with
-`credentials: true`. All three pieces have to agree for login to actually
-persist — if you change ports, update both `.env` files to match.
+The frontend and backend run on different ports/origins. The backend sets the
+session token as an `httpOnly` cookie with `SameSite=None` and `Secure`, and the
+frontend API client sends requests with `credentials: "include"`.
 
-## Verifying it locally
+The backend CORS config in `backend/src/app.ts` allows the configured
+`FRONTEND_URL` with `credentials: true`. For login persistence to work, these
+pieces must agree:
 
-A few features depend on reaching arbitrary external sites and services —
-this was built and type-checked in a sandboxed environment with a
-locked-down network allowlist, so the full pipeline could not be exercised
-against a live website during development. Worth specifically checking once
-you have both servers running:
+- `backend/.env` has the exact frontend origin in `FRONTEND_URL`.
+- `frontend/.env` has the exact backend origin in `NEXT_PUBLIC_API_URL`.
+- Requests are made with credentials enabled.
+- In production or cross-site deployments, cookies require HTTPS because they
+  are marked `Secure`.
 
-1. **Register on the frontend → scan a real URL → watch the analysis page
-   poll to "ready".** Exercises the crawler, screenshot service, and all
-   five backend agents, plus the cross-origin cookie auth end-to-end.
-2. **Chat tab** — ask "what does this site do?" and confirm the answer
-   cites page paths, not just a generic summary.
-3. **Open browser dev tools → Network tab** while logging in — confirm the
-   `Set-Cookie` header is present on the `/api/auth/login` response and
-   that subsequent requests include it.
+## Verifying It Locally
 
-If the screenshot step returns nothing (some sites block the screenshot
-service, or you're on a restrictive network), the UX Agent returns a
-clearly-labeled "not analyzed" result rather than fabricating scores —
-that's intentional, not a bug.
+Once both servers are running:
 
-## Honest limitations
+1. Register on the frontend, scan a real URL, and watch the analysis page poll
+   until it is ready.
+2. Open the Chat tab and ask a question like "what does this site do?" Confirm
+   the answer uses crawled page context.
+3. Open browser dev tools, log in, and confirm the `/api/auth/login` response
+   includes `Set-Cookie`.
+4. Confirm later API requests include the session cookie.
 
-- **No background job queue.** The analyze pipeline runs inline in one
-  request (the backend's HTTP server timeout is extended to ~150s to give
-  it room). A 50-page enterprise site would need this moved to a real queue
-  (BullMQ + Redis, or a serverless background function).
-- **Domain age / WHOIS / registrar data isn't populated** — needs a paid
-  API. The fields exist in the schema and UI but are `null`. See
-  `backend/src/lib/agents/securityAgent.ts`.
-- **Embeddings fall back to a non-semantic hash if `VOYAGE_API_KEY` is
-  unset.** The RAG pipeline still runs end-to-end; retrieval quality is
-  much better with a real embedding model.
-- **Crawling is HTTP-only (no headless browser).** Heavily client-rendered
-  SPAs may crawl thin. Swapping in Playwright is a contained change to
+If the screenshot step returns nothing because a site blocks the screenshot
+service or your network is restrictive, the UX Agent should return a clearly
+labeled fallback instead of fabricating scores.
+
+## Honest Limitations
+
+- No background job queue. The analyze pipeline still runs inline in one HTTP
+  request, so large sites should eventually move to BullMQ, Redis, or a
+  serverless background job.
+- Domain age, WHOIS, and registrar data are not populated yet. The schema and UI
+  fields exist, but this needs a paid data provider.
+- If `VOYAGE_API_KEY` is unset, embeddings fall back to a deterministic
+  non-semantic hash. The app remains demoable, but retrieval quality is better
+  with Voyage enabled.
+- Crawling is HTTP-only with `fetch` and `cheerio`. Heavily client-rendered SPAs
+  may crawl thin. Swapping in Playwright would mainly affect
   `backend/src/lib/crawler.ts`.
+- The Groq wrapper keeps older helper names like `callClaudeForJson` for
+  compatibility, even though requests now go to Groq.
+- Image inputs in the current Groq wrapper are ignored, so vision-style UX
+  analysis depends on available text/context unless the model path is upgraded.
 
-## Project structure
+## Project Structure
 
-```
+```text
 backend/src/
-├── server.ts              # Entrypoint — connects to Mongo, starts Express
-├── app.ts                  # Express app, CORS, route mounting, error handler
-├── routes/                 # auth.ts, sites.ts
-├── controllers/             # authController.ts, sitesController.ts
-├── middleware/              # requireAuth.ts
-├── models/                  # User.ts, Site.ts (Mongoose schemas)
-└── lib/
-    ├── agents/               # Research, UX, Security, Competitor, Revenue, Cost
-    ├── crawler.ts, techDetection.ts, trustAnalysis.ts, screenshot.ts, rag.ts
-    └── claude.ts, auth.ts, db.ts, config.ts
+|-- server.ts              Entrypoint: connects to MongoDB and starts Express
+|-- app.ts                 Express app, CORS, route mounting, error handler
+|-- routes/                auth.ts, sites.ts
+|-- controllers/           authController.ts, sitesController.ts
+|-- middleware/            requireAuth.ts
+|-- models/                User.ts, Site.ts
+`-- lib/
+    |-- agents/            Research, UX, Security, Competitor, Revenue, Cost
+    |-- crawler.ts
+    |-- techDetection.ts
+    |-- trustAnalysis.ts
+    |-- screenshot.ts
+    |-- rag.ts
+    |-- claude.ts          Groq/OpenAI-compatible API wrapper
+    |-- auth.ts
+    |-- db.ts
+    `-- config.ts
 
 frontend/src/
-├── app/                     # Next.js pages (landing, login, register, dashboard, sites/[id], settings)
-├── components/               # Shared UI (score gauges, chat panel, tables, nav)
-└── lib/api.ts                # The only file that knows the backend's URL
+|-- app/                   Next.js pages and route segments
+|-- components/            Shared UI components
+`-- lib/api.ts             Backend API client
 ```
